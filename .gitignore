@@ -1,0 +1,8 @@
+.build_Debug/src/blurred.xc.o
+.build_Debug/blurred.d
+.build_Debug/pgmIO.d
+.build_Debug/src/blurred.xc.d
+.build_Debug/src/pgmIO.c.d
+.build_Debug/src/pgmIO.c.o
+.settings/org.eclipse.cdt.core.prefs
+bin/Debug/blurred_Debug.xe
