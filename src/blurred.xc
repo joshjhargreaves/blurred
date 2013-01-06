@@ -11,11 +11,11 @@ typedef unsigned char uchar;
 #include <platform.h>
 #include <stdio.h>
 #include "pgmIO.h"
-#define IMHT 16
-#define IMWD 16
+#define IMHT 256
+#define IMWD 400
 #define noWorkers 4
 #define bufferWidth (IMHT/noWorkers)+2
-char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\test0.pgm"; //put your input image path here
+char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\BristolCathedral.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
 out port cledG = PORT_CLOCKLED_SELG;
@@ -52,26 +52,43 @@ void buttonListener(in port buttons, chanend toDistributor) {
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 void worker(chanend c_in, chanend c_out, int id) {
-	int buffer[bufferWidth][IMWD];
-	int temp = bufferWidth-1;
-	if(id == 0 || id == (noWorkers-1)) {
-		int temp = bufferWidth-1;
-	}
-	for(int i=0;i<temp;i++) {
-		for(int j=0;j<IMWD;j++) {
-			c_in :> buffer[i][j];
+	int temp1 = 0;
+	int running = 1;
+	while(running) {
+		for(int i=0;i<9;i++) {
+			int temp2;
+			c_in :> temp2;
+			if(temp2 == 1000)
+				break;
+			temp1 = (temp1 + temp2);
 		}
-	}
-	temp--;
-	for(int i=1;i<temp;i++) {
-		for(int j = 1;j<IMWD-1;j++) {
-			c_out <: (buffer[i][j-1] + buffer[i-1][j-1] + buffer[i-1][j] + buffer[i-1][j+1]
-								 + buffer[i][j+1] + buffer[i+1][j+1] + buffer[i+1][j] + buffer[i+1][j-1])/8;
-		}
+		c_out <: (uchar)(temp1/9);
+		temp1 = 0;
 	}
 }
 void collector(chanend fromWorkers[], chanend c_out) {
-
+	uchar black = 0;
+	int number = 0;
+	for(int i=0;i<IMWD;i++) {
+		c_out <: black;
+		number++;
+	}
+	for(int j=1;j<IMHT-1;j++) {
+		c_out <: black;
+		number++;
+		for(int i=1;i<IMWD-1;i++) {
+			uchar temp = black;
+			fromWorkers[(i-1)%4] :> temp;
+			c_out <: temp;
+			number++;
+		}
+		c_out <: black;
+		number++;
+		//printf("Number of pixels written %d\n", number);
+	}
+	for(int i=0;i<IMWD;i++) {
+			c_out <: black;
+	}
 }
 void DataInStream(char infname[], chanend c_out) {
 	int res;
@@ -84,15 +101,15 @@ void DataInStream(char infname[], chanend c_out) {
 	}
 	for (int y = 0; y < IMHT; y++) {
 		_readinline(line, IMWD);
-		for (int x = 0; x < IMWD; x++) {
+		for (int x=0; x<IMWD; x++) {
 			c_out  <: line[ x ];
 		//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
-	}
+		}
 	//printf( "\n" ); //uncomment to show image values
-}
-_closeinpgm();
-printf( "DataInStream:Done...\n" );
-return;
+	}
+	_closeinpgm();
+	//printf( "DataInStream:Done...\n" );
+	return;
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -101,13 +118,37 @@ return;
 /////////////////////////////////////////////////////////////////////////////////////////
 void distributor(chanend c_in, chanend c_out[]) {
 	uchar val;
+	uchar tempArray[3][IMWD];
+	int currentLine = 1;
 	printf("ProcessImage:Start, size = %dx%d\n", IMHT, IMWD);
 	//This code is to be replaced – it is a place holder for farming out the work...
 	for (int y = 0; y < IMHT; y++) {
+		int plusOne = (y)%3;
+		int minusOne = (y-2)%3;
+		currentLine = (y-1)%3;
 		for (int x = 0; x < IMWD; x++) {
-			c_in :> val;
+			c_in :> tempArray[y%3][x];
+
 			//c_out <: (uchar)( val ^ 0xFF ); //Need to cast
 		}
+		if(y >= 2) {
+			for(int i=1;i<IMWD-1;i++) {
+				int temp = (i-1)%4;
+				c_out[temp] <: (int)tempArray[currentLine][i-1];
+				c_out[temp] <: (int)tempArray[minusOne][i-1];
+				c_out[temp] <: (int)tempArray[minusOne][i];
+				c_out[temp] <: (int)tempArray[minusOne][i+1];
+				c_out[temp] <: (int)tempArray[currentLine][i+1];
+				c_out[temp] <: (int)tempArray[plusOne][i+1];
+				c_out[temp] <: (int)tempArray[plusOne][i];
+				c_out[temp] <: (int)tempArray[plusOne][i-1];
+				c_out[temp] <: (int)tempArray[currentLine][i];
+			}
+			currentLine = (currentLine + 1)%3;
+		}
+	}
+	for(int i=0;i<noWorkers;i++) {
+		c_out[i] <: 1000;
 	}
 	printf( "ProcessImage:Done...\n" );
 }
@@ -144,10 +185,10 @@ int main() {
 	chan workerToCollector[noWorkers];
 	par //extend/change this par statement to implement your concurrent filter
 	{
-		on stdcore[0] : DataInStream( infname, c_inIO );
-		on stdcore[0] : distributor( c_inIO, distributorToWorkers);
+		on stdcore[1] : DataInStream( infname, c_inIO );
+		on stdcore[1] : distributor( c_inIO, distributorToWorkers);
 		on stdcore[3] : collector(workerToCollector, c_outIO);
-		on stdcore[0]:DataOutStream( outfname, c_outIO );
+		on stdcore[3]:DataOutStream( outfname, c_outIO );
 		par (int k = 0; k<noWorkers; k++) {
 			on stdcore[k%4]: worker(distributorToWorkers[k],workerToCollector[k], k);
 		}
