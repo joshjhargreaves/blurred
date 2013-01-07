@@ -14,7 +14,8 @@ typedef unsigned char uchar;
 #define IMHT 256
 #define IMWD 400
 #define noWorkers 4
-#define bufferWidth (IMHT/noWorkers)+2
+#define bufferWidth (IMWD/noWorkers)+2
+#define divided IMWD/noWorkers
 char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\BristolCathedral.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
@@ -54,40 +55,59 @@ void buttonListener(in port buttons, chanend toDistributor) {
 void worker(chanend c_in, chanend c_out, int id) {
 	int temp1 = 0;
 	int running = 1;
-	while(running) {
-		for(int i=0;i<9;i++) {
-			int temp2;
-			c_in :> temp2;
-			if(temp2 == 1000)
-				break;
-			temp1 = (temp1 + temp2);
-		}
-		c_out <: (uchar)(temp1/9);
-		temp1 = 0;
+	int result = 0;
+	uchar tempArray[3][bufferWidth];
+	int width = bufferWidth;
+	int counter = 0;
+	if(id==0 || id == noWorkers-1) {
+		width--;
 	}
+	for(int j=0;j<IMHT;j++) {
+		int plusOne = (j)%3;
+		int minusOne = (j-2)%3;
+		int currentLine = (j-1)%3;
+		for(int k=0;k<width;k++) {
+			c_in :> temp1;
+			tempArray[j%3][k] = (uchar)temp1;
+		}
+		if(j>=2) {
+			result = 0;
+			for(int i=1;i<width-1;i++) {
+				int temp = (i-1)%4;
+				result = (int)tempArray[currentLine][i-1] + (int)tempArray[minusOne][i-1] + (int)tempArray[minusOne][i]
+							+ (int)tempArray[minusOne][i+1] + (int)tempArray[currentLine][i+1] + (int)tempArray[plusOne][i+1]
+							 + (int)tempArray[plusOne][i] + (int)tempArray[plusOne][i-1] + (int)tempArray[currentLine][i];
+				c_out <: (uchar)(result/9);
+			}
+		}
+	}
+	//printf("worker done\n");
 }
 void collector(chanend fromWorkers[], chanend c_out) {
 	uchar black = 0;
 	int number = 0;
+	uchar tempValue1, tempValue2;
 	for(int i=0;i<IMWD;i++) {
 		c_out <: black;
 		number++;
 	}
 	for(int j=1;j<IMHT-1;j++) {
+		int worker = 0;
+		int total = divided;
 		c_out <: black;
-		number++;
-		for(int i=1;i<IMWD-1;i++) {
-			uchar temp = black;
-			fromWorkers[(i-1)%4] :> temp;
-			c_out <: temp;
-			number++;
+		for (int x = 0; x < IMWD-2; x++) {
+			if(x == total-1 ) {
+				worker++;
+				total = (worker+1)*divided;
+			}
+			//printf("worker = %d\n", worker);
+			fromWorkers[worker] :> tempValue1;
+			c_out <: tempValue1;
 		}
 		c_out <: black;
-		number++;
-		//printf("Number of pixels written %d\n", number);
 	}
 	for(int i=0;i<IMWD;i++) {
-			c_out <: black;
+		c_out <: black;
 	}
 }
 void DataInStream(char infname[], chanend c_out) {
@@ -118,38 +138,42 @@ void DataInStream(char infname[], chanend c_out) {
 /////////////////////////////////////////////////////////////////////////////////////////
 void distributor(chanend c_in, chanend c_out[]) {
 	uchar val;
-	uchar tempArray[3][IMWD];
 	int currentLine = 1;
+	uchar tempArray[3][IMWD];
+	uchar tempValue;
+	int flag = 0;
 	printf("ProcessImage:Start, size = %dx%d\n", IMHT, IMWD);
 	//This code is to be replaced – it is a place holder for farming out the work...
 	for (int y = 0; y < IMHT; y++) {
 		int plusOne = (y)%3;
 		int minusOne = (y-2)%3;
+		int worker = 0, count = 0, total = 0;
+		int workers = 0;
 		currentLine = (y-1)%3;
+		flag = 0;
+		total = divided;
 		for (int x = 0; x < IMWD; x++) {
-			c_in :> tempArray[y%3][x];
+			c_in :> tempValue;
+			if(flag) {
+				c_out[(workers)-1] <: (int)tempValue;
+				flag = 0;
+			}
+			if(x+1 >= total && workers+1<noWorkers) {
+				workers++;
+				total = (workers+1)*divided;
+				flag = 1;
+			}
+			c_out[workers] <: (int)tempValue;
+			if(flag) {
+				c_out[workers-1] <: (int)tempValue;
 
+			}
 			//c_out <: (uchar)( val ^ 0xFF ); //Need to cast
 		}
-		if(y >= 2) {
-			for(int i=1;i<IMWD-1;i++) {
-				int temp = (i-1)%4;
-				c_out[temp] <: (int)tempArray[currentLine][i-1];
-				c_out[temp] <: (int)tempArray[minusOne][i-1];
-				c_out[temp] <: (int)tempArray[minusOne][i];
-				c_out[temp] <: (int)tempArray[minusOne][i+1];
-				c_out[temp] <: (int)tempArray[currentLine][i+1];
-				c_out[temp] <: (int)tempArray[plusOne][i+1];
-				c_out[temp] <: (int)tempArray[plusOne][i];
-				c_out[temp] <: (int)tempArray[plusOne][i-1];
-				c_out[temp] <: (int)tempArray[currentLine][i];
-			}
-			currentLine = (currentLine + 1)%3;
-		}
 	}
-	for(int i=0;i<noWorkers;i++) {
+	/*for(int i=0;i<noWorkers;i++) {
 		c_out[i] <: 1000;
-	}
+	}*/
 	printf( "ProcessImage:Done...\n" );
 }
 /////////////////////////////////////////////////////////////////////////////////////////
