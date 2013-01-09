@@ -15,7 +15,9 @@ typedef unsigned char uchar;
 #define IMWD 400
 #define noWorkers 4
 #define bufferWidth (IMWD/noWorkers)+2
+#define selection (IMWD/noWorkers)
 #define divided IMWD/noWorkers
+#define SHUTDOWN 1000000
 char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\BristolCathedral.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
@@ -30,22 +32,63 @@ typedef struct {
 		p7,p8;
 }pixels;
 
-void buttonListener(in port buttons, chanend toDistributor) {
-	//ABCD 14 13 11 7
+void showLED(out port p, chanend fromVisualiser) {
+	unsigned int lightUpPattern;
+	unsigned int running = 1;
+	while (running) {
+		select {
+		case fromVisualiser :> lightUpPattern: //read LED pattern from visualiser process
+			if (lightUpPattern == SHUTDOWN)
+				running = 0;
+			else p <: lightUpPattern;          //send pattern to LEDs
+			break;
+		default:
+			break;
+		}
+	}
+	//printf("LED:Done...\n");
+}
+
+void waitMoment(uint myTime) {
+	timer tmr;
+	uint waitTime;
+	tmr :> waitTime;
+	waitTime += myTime;
+	tmr when timerafter(waitTime) :> void;
+}
+
+void visualiser(chanend c_in, chanend toQuadrant[]) {
+	int progress = 0, running = 1, i;
+	cledR <: 1;
+	while (running) {
+		c_in :> i;
+		if (i == SHUTDOWN) {
+			running = 0;
+		} else {
+			progress = 12 * i/IMHT;
+			i = (1 << progress) - 1; //j represents LED's, e.g. 12 - 111 111 111 111; 11 - 011 111 111 111
+			for (int j = 0; j < 4; j++) {
+				toQuadrant[j] <: (((i>> (3 * j)) & 0b111)) << 4;
+			}
+		}
+	}
+	for (int j = 0; j < 4; j++) {
+		toQuadrant[j] <: SHUTDOWN; //send shutdown flag to all quadrants
+	}
+	//printf("Visualiser:Done...\n");
+}
+
+//READ BUTTONS and send commands to Distributor
+void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 	int buttonInput;            //button pattern currently pressed
 	unsigned int running = 1;   //helper variable to determine system shutdown
 	while (running) {
 		buttons when pinsneq(15) :> buttonInput;
-		///////////////////////////////////////////////////////////////////////
-		//
-		//   ADD YOUR CODE HERE TO ACT ON BUTTON INPUT
-		//
 		toDistributor <: buttonInput;
 		toDistributor :> running;	//receives 1 unless shutdown (0)
-		//waitMoment(25000000);       //ensures button press read once only; 25000000-50000000 works, 15000000 works best
-		///////////////////////////////////////////////////////////////////////
+		waitMoment(15000000);       //ensures button press read once only; 25000000-50000000 works, 15000000 works best
 	}
-	printf("Button not running\n");
+	//printf("ButtonListener:Done...\n");
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -83,10 +126,13 @@ void worker(chanend c_in, chanend c_out, int id) {
 	}
 	//printf("worker done\n");
 }
-void collector(chanend fromWorkers[], chanend c_out) {
+void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 	uchar black = 0;
 	int number = 0;
 	uchar tempValue1, tempValue2;
+	int width = IMWD/noWorkers;
+	uchar w0[selection-1], w1[selection], w2[selection], w3[selection-1];
+	toVisualiser <: 1;
 	for(int i=0;i<IMWD;i++) {
 		c_out <: black;
 		number++;
@@ -95,7 +141,7 @@ void collector(chanend fromWorkers[], chanend c_out) {
 		int worker = 0;
 		int total = divided;
 		c_out <: black;
-		for (int x = 0; x < IMWD-2; x++) {
+		/*for (int x = 0; x < IMWD-2; x++) {
 			if(x == total-1 ) {
 				worker++;
 				total = (worker+1)*divided;
@@ -103,9 +149,43 @@ void collector(chanend fromWorkers[], chanend c_out) {
 			//printf("worker = %d\n", worker);
 			fromWorkers[worker] :> tempValue1;
 			c_out <: tempValue1;
+		}*/
+		par {
+				{
+					for (int j = 0; j < selection-1; j++) {
+						fromWorkers[0] :> tempValue1;
+						c_out <: tempValue1;
+					}
+				}
+				{
+					for (int j = 0; j < (selection); j++) {
+						fromWorkers[1] :> w1[j];
+					}
+				}
+				{
+					for (int j = 0; j < (selection); j++) {
+						fromWorkers[2] :> w2[j];
+					}
+				}
+				{
+					for (int j = 0; j < (selection-1); j++) {
+						fromWorkers[3] :> w3[j];
+					}
+				}
+		}
+		for(int j = 0;j < selection;j++) {
+			c_out <: w1[j];
+		}
+		for(int j = 0;j < selection;j++) {
+			c_out <: w2[j];
+		}
+		for(int j = 0; j< selection-1; j++) {
+			c_out <: w3[j];
 		}
 		c_out <: black;
+		toVisualiser <: j+1;
 	}
+	toVisualiser <: IMHT;
 	for(int i=0;i<IMWD;i++) {
 		c_out <: black;
 	}
@@ -207,14 +287,20 @@ int main() {
 	chan c_inIO, c_outIO; //extend your channel definitions here
 	chan distributorToWorkers[noWorkers];
 	chan workerToCollector[noWorkers];
+	chan toVisualiser;
+	chan quadrant[4];
 	par //extend/change this par statement to implement your concurrent filter
 	{
+		on stdcore[0] : visualiser(toVisualiser, quadrant);
 		on stdcore[1] : DataInStream( infname, c_inIO );
 		on stdcore[1] : distributor( c_inIO, distributorToWorkers);
-		on stdcore[3] : collector(workerToCollector, c_outIO);
+		on stdcore[3] : collector(workerToCollector, c_outIO, toVisualiser);
 		on stdcore[3]:DataOutStream( outfname, c_outIO );
 		par (int k = 0; k<noWorkers; k++) {
 			on stdcore[k%4]: worker(distributorToWorkers[k],workerToCollector[k], k);
+		}
+		par (int k=0;k<4;k++) {
+			on stdcore[k%4]: showLED(cled[k],quadrant[k]);
 		}
 
 		//printf("Main:Done...\n");
