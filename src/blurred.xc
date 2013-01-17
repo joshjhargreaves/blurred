@@ -66,7 +66,7 @@ void visualiser(chanend c_in, chanend toQuadrant[]) {
 			running = 0;
 		} else {
 			progress = 12 * i/IMHT;
-			i = (1 << progress) - 1; //j represents LED's, e.g. 12 - 111 111 111 111; 11 - 011 111 111 111
+			i = (1 << progress) - 1;
 			for (int j = 0; j < 4; j++) {
 				toQuadrant[j] <: (((i>> (3 * j)) & 0b111)) << 4;
 			}
@@ -81,12 +81,12 @@ void visualiser(chanend c_in, chanend toQuadrant[]) {
 //READ BUTTONS and send commands to Distributor
 void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 	int buttonInput;            //button pattern currently pressed
-	unsigned int running = 1;   //helper variable to determine system shutdown
+	unsigned int running = 1;
 	while (running) {
 		buttons when pinsneq(15) :> buttonInput;
 		toDistributor <: buttonInput;
-		toDistributor :> running;	//receives 1 unless shutdown (0)
-		waitMoment(15000000);       //ensures button press read once only; 25000000-50000000 works, 15000000 works best
+		toDistributor :> running;
+		waitMoment(15000000);
 	}
 	//printf("ButtonListener:Done...\n");
 }
@@ -153,8 +153,7 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 		par {
 				{
 					for (int j = 0; j < selection-1; j++) {
-						fromWorkers[0] :> tempValue1;
-						c_out <: tempValue1;
+						fromWorkers[0] :> w0[j];
 					}
 				}
 				{
@@ -172,6 +171,9 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 						fromWorkers[3] :> w3[j];
 					}
 				}
+		}
+		for(int j = 0; j<selection-1;j++) {
+			c_out <: w0[j];
 		}
 		for(int j = 0;j < selection;j++) {
 			c_out <: w1[j];
