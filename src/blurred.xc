@@ -32,12 +32,12 @@ typedef struct {
 		p7,p8;
 }pixels;
 
-void showLED(out port p, chanend fromVisualiser) {
+void showLED(out port p, chanend fromDataIn) {
 	unsigned int lightUpPattern;
 	unsigned int running = 1;
 	while (running) {
 		select {
-		case fromVisualiser :> lightUpPattern: //read LED pattern from visualiser process
+		case fromDataIn :> lightUpPattern: //read LED pattern from visualiser process
 			if (lightUpPattern == SHUTDOWN)
 				running = 0;
 			else p <: lightUpPattern;          //send pattern to LEDs
@@ -85,7 +85,12 @@ void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 	while (running) {
 		buttons when pinsneq(15) :> buttonInput;
 		toDistributor <: buttonInput;
-		toDistributor :> running;
+		select {
+			case toDistributor :> running:
+				break;
+			default:
+				break;
+		}
 		waitMoment(15000000);
 	}
 	//printf("ButtonListener:Done...\n");
@@ -192,9 +197,14 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 		c_out <: black;
 	}
 }
-void DataInStream(char infname[], chanend c_out) {
+void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 	int res;
 	uchar line[IMWD];
+	int button = 0;
+	int value = 0;
+	while(button != 14) {
+		fromButtons :> button;
+	}
 	printf("DataInStream:Start...\n");
 	res = _openinpgm(infname, IMWD, IMHT);
 	if (res) {
@@ -204,6 +214,23 @@ void DataInStream(char infname[], chanend c_out) {
 	for (int y = 0; y < IMHT; y++) {
 		_readinline(line, IMWD);
 		for (int x=0; x<IMWD; x++) {
+			select {
+				case fromButtons :> value:
+					printf("%d\n", value);
+					if(value == 13) {
+						printf("paused\n");
+						while(1) {
+							fromButtons :> value;
+							if(value == 13) {
+								printf("unpaused\n");
+								break;
+							}
+						}
+					}
+					break;
+				 default:
+					break;
+			}
 			c_out  <: line[ x ];
 		//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
 		}
@@ -290,11 +317,13 @@ int main() {
 	chan distributorToWorkers[noWorkers];
 	chan workerToCollector[noWorkers];
 	chan toVisualiser;
+	chan buttonsToDataIn;
 	chan quadrant[4];
 	par //extend/change this par statement to implement your concurrent filter
 	{
 		on stdcore[0] : visualiser(toVisualiser, quadrant);
-		on stdcore[1] : DataInStream( infname, c_inIO );
+		on stdcore[0] : buttonListener(buttons, buttonsToDataIn);
+		on stdcore[1] : DataInStream( infname, c_inIO, buttonsToDataIn );
 		on stdcore[1] : distributor( c_inIO, distributorToWorkers);
 		on stdcore[3] : collector(workerToCollector, c_outIO, toVisualiser);
 		on stdcore[3]:DataOutStream( outfname, c_outIO );
