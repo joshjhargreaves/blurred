@@ -46,7 +46,7 @@ void showLED(out port p, chanend fromDataIn) {
 			break;
 		}
 	}
-	//printf("LED:Done...\n");
+	printf("LED:Done...\n");
 }
 
 void waitMoment(uint myTime) {
@@ -85,15 +85,12 @@ void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 	while (running) {
 		buttons when pinsneq(15) :> buttonInput;
 		toDistributor <: buttonInput;
-		select {
-			case toDistributor :> running:
-				break;
-			default:
-				break;
-		}
+		toDistributor :> running;
+		if (running == SHUTDOWN)
+			running = 0;
 		waitMoment(15000000);
 	}
-	//printf("ButtonListener:Done...\n");
+	printf("ButtonListener:Done...\n");
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -129,7 +126,10 @@ void worker(chanend c_in, chanend c_out, int id) {
 			}
 		}
 	}
-	//printf("worker done\n");
+	printf("worker done\n");
+	c_in :> temp1;
+	c_out <: SHUTDOWN;
+	printf("worker shutdown\n");
 }
 void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 	uchar black = 0;
@@ -196,6 +196,11 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 	for(int i=0;i<IMWD;i++) {
 		c_out <: black;
 	}
+	for(int i=0; i<noWorkers;i++) {
+		fromWorkers[i] :> number;
+	}
+	toVisualiser <: SHUTDOWN;
+	printf("collector done\n");
 }
 void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 	int res;
@@ -204,6 +209,7 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 	int value = 0;
 	while(button != 14) {
 		fromButtons :> button;
+		fromButtons <: 1;
 	}
 	printf("DataInStream:Start...\n");
 	res = _openinpgm(infname, IMWD, IMHT);
@@ -216,11 +222,11 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 		for (int x=0; x<IMWD; x++) {
 			select {
 				case fromButtons :> value:
-					printf("%d\n", value);
 					if(value == 13) {
 						printf("paused\n");
 						while(1) {
 							fromButtons :> value;
+							fromButtons <: 1;
 							if(value == 13) {
 								printf("unpaused\n");
 								break;
@@ -231,14 +237,50 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 				 default:
 					break;
 			}
-			c_out  <: line[ x ];
+			c_out  <: (int)line[ x ];
 		//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
 		}
 	//printf( "\n" ); //uncomment to show image values
 	}
 	_closeinpgm();
-	//printf( "DataInStream:Done...\n" );
+	while(1) {
+		fromButtons :> button;
+		if(button == 11) {
+			fromButtons <: 0;
+			break;
+		} else {
+			fromButtons <: 1;
+		}
+	}
+	c_out <: SHUTDOWN;
+	printf( "DataInStream:Done...\n" );
 	return;
+}
+void timer(channend toCollector) {
+	timer tmr;
+	int running = 1;
+	int overflowFlag = 0;
+	uint currentTime, startTime, value, count = 0;
+	tmr :> currentTime;
+	startTime = time/100;
+	if(startTime > 2147483647) {
+		overflowFlag = 1;
+	}
+	while(running) {
+		select {
+			case toCollector :> value:
+				if(value == SHUTDOWN) running = 0;
+				else {
+					tmr :> value;
+					if(value > 2147483647) overflowFlag = 1;
+				}
+				if((value < 2147483647) && (overflowFlag == 1)) {
+					counter++;
+					overflowFlag = 1;
+				}
+				value = counter * 42949673 + val/100 -  startTime;
+		}
+	}
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -249,7 +291,7 @@ void distributor(chanend c_in, chanend c_out[]) {
 	uchar val;
 	int currentLine = 1;
 	uchar tempArray[3][IMWD];
-	uchar tempValue;
+	int tempValue;
 	int flag = 0;
 	printf("ProcessImage:Start, size = %dx%d\n", IMHT, IMWD);
 	//This code is to be replaced – it is a place holder for farming out the work...
@@ -264,7 +306,7 @@ void distributor(chanend c_in, chanend c_out[]) {
 		for (int x = 0; x < IMWD; x++) {
 			c_in :> tempValue;
 			if(flag) {
-				c_out[(workers)-1] <: (int)tempValue;
+				c_out[(workers)-1] <: tempValue;
 				flag = 0;
 			}
 			if(x+1 >= total && workers+1<noWorkers) {
@@ -272,18 +314,25 @@ void distributor(chanend c_in, chanend c_out[]) {
 				total = (workers+1)*divided;
 				flag = 1;
 			}
-			c_out[workers] <: (int)tempValue;
+			c_out[workers] <: tempValue;
 			if(flag) {
-				c_out[workers-1] <: (int)tempValue;
+				c_out[workers-1] <: tempValue;
 
 			}
 			//c_out <: (uchar)( val ^ 0xFF ); //Need to cast
 		}
 	}
+	printf( "ProcessImage:Done...\n" );
 	/*for(int i=0;i<noWorkers;i++) {
 		c_out[i] <: 1000;
 	}*/
-	printf( "ProcessImage:Done...\n" );
+	do {
+		c_in :> tempValue;
+	} while (tempValue != SHUTDOWN);
+	for(int i = 0; i<noWorkers; i++) {
+		c_out[i] <: SHUTDOWN;
+	}
+	printf( "Distributor:Shutdown...\n" );
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
