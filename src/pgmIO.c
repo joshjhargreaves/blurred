@@ -127,14 +127,12 @@ int _writepgm(unsigned char x[], int height, int width, char fname[])
     FILE *fp;
     int hlen;
     char hdr[ 64 ];
-    char buffer[2048];
 
     sprintf( hdr, "P5\n%d %d\n255\n", width, height );
     hlen = strlen( hdr );
 	printf( "In writepgm function, writing: %s\n", fname );
 
 	fp = fopen( fname, "wb" );
-    setvbuf(fp, buffer, _IOFBF, 2048);
 	if( fp == NULL)
 	{
 		printf( "Could not open %s for writing.\n", fname );
@@ -151,12 +149,10 @@ int _readpgm(unsigned char x[], int height, int width, char fname[])
     FILE *fp;
     int inwidth, inheight;
     char str[ 64 ];
-    char buffer[2048];
+
 	printf( "In readpgm function, reading: %s\n", fname );
 
 	fp = fopen( fname, "rb" );
-    setvbuf(fp, buffer, _IOFBF, 2048);
-
 	if( fp == NULL)
 	{
 		printf( "Could not open %s for reading.\n", fname );
