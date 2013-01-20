@@ -11,6 +11,7 @@ typedef unsigned char uchar;
 #include <platform.h>
 #include <stdio.h>
 #include "pgmIO.h"
+
 #define IMHT 256
 #define IMWD 400
 #define noWorkers 4
@@ -18,8 +19,9 @@ typedef unsigned char uchar;
 #define selection (IMWD/noWorkers)
 #define divided IMWD/noWorkers
 #define SHUTDOWN 1000000
-char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\BristolCathedral.pgm"; //put your input image path here
-char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
+
+char infname[] = "/Users/den/Downloads/Blur/Tests/testB.pgm"; //put your input image path here
+char outfname[] = "/Users/den/Downloads/Blur/Tests/outputB.pgm"; //put your output image path here
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
 out port cledG = PORT_CLOCKLED_SELG;
 out port cledR = PORT_CLOCKLED_SELR;
@@ -157,41 +159,51 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 		}*/
 		par {
 				{
-					for (int j = 0; j < selection-1; j++) {
+				for (int j = 0; j < selection-1; j++) {
 						fromWorkers[0] :> w0[j];
-					}
+						par {
+								{
+									for (int j = 0; j < selection-1; j++) {
+										fromWorkers[0] :> tempValue1;
+										c_out <: tempValue1;
+									}
+								}
+
+								{
+									for (int j = 0; j < (selection); j++) {
+										fromWorkers[1] :> w1[j];
+									}
+								}
+
+								{
+									for (int j = 0; j < (selection); j++) {
+										fromWorkers[2] :> w2[j];
+									}
+								}
+
+								{
+									for (int j = 0; j < (selection-1); j++) {
+										fromWorkers[3] :> w3[j];
+									}
+								}
+						}
+
+						for(int j = 0; j<selection-1;j++) {
+							c_out <: w0[j];
+						}
+						for(int j = 0;j < selection;j++) {
+							c_out <: w1[j];
+						}
+						for(int j = 0;j < selection;j++) {
+							c_out <: w2[j];
+						}
+						for(int j = 0; j< selection-1; j++) {
+							c_out <: w3[j];
+						}
+
+						c_out <: black;
+						toVisualiser <: j+1;
 				}
-				{
-					for (int j = 0; j < (selection); j++) {
-						fromWorkers[1] :> w1[j];
-					}
-				}
-				{
-					for (int j = 0; j < (selection); j++) {
-						fromWorkers[2] :> w2[j];
-					}
-				}
-				{
-					for (int j = 0; j < (selection-1); j++) {
-						fromWorkers[3] :> w3[j];
-					}
-				}
-		}
-		for(int j = 0; j<selection-1;j++) {
-			c_out <: w0[j];
-		}
-		for(int j = 0;j < selection;j++) {
-			c_out <: w1[j];
-		}
-		for(int j = 0;j < selection;j++) {
-			c_out <: w2[j];
-		}
-		for(int j = 0; j< selection-1; j++) {
-			c_out <: w3[j];
-		}
-		c_out <: black;
-		toVisualiser <: j+1;
-	}
 	toVisualiser <: IMHT;
 	for(int i=0;i<IMWD;i++) {
 		c_out <: black;
@@ -293,8 +305,8 @@ void distributor(chanend c_in, chanend c_out[]) {
 	uchar tempArray[3][IMWD];
 	int tempValue;
 	int flag = 0;
+
 	printf("ProcessImage:Start, size = %dx%d\n", IMHT, IMWD);
-	//This code is to be replaced – it is a place holder for farming out the work...
 	for (int y = 0; y < IMHT; y++) {
 		int plusOne = (y)%3;
 		int minusOne = (y-2)%3;
@@ -319,9 +331,9 @@ void distributor(chanend c_in, chanend c_out[]) {
 				c_out[workers-1] <: tempValue;
 
 			}
-			//c_out <: (uchar)( val ^ 0xFF ); //Need to cast
 		}
 	}
+
 	printf( "ProcessImage:Done...\n" );
 	/*for(int i=0;i<noWorkers;i++) {
 		c_out[i] <: 1000;
@@ -333,34 +345,103 @@ void distributor(chanend c_in, chanend c_out[]) {
 		c_out[i] <: SHUTDOWN;
 	}
 	printf( "Distributor:Shutdown...\n" );
+	printf("ProcessImage:Done...\n");
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Write pixel stream from channel c_in to pgm image file
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataOutStream(char outfname[], chanend c_in) {
+void DataOutStream(char outfname[], chanend c_in, chanend toTimer) {
 	int res;
 	uchar line[IMWD];
+	uint start, end;
 	printf("DataOutStream:Start...\n");
+	toTimer <: 0;
+	toTimer :> start;
+	printf("From Timer %u minute %u.%06us\n", start/1000000/60, (start/1000000)%60, start%1000000);
 	res = _openoutpgm(outfname, IMWD, IMHT);
 	if (res) {
 		printf("DataOutStream:Error opening %s\n.", outfname);
 		return;
 	}
+
 	for (int y = 0; y < IMHT; y++) {
 		for (int x = 0; x < IMWD; x++) {
 		c_in :> line[ x ];
-		//printf( "+%4.1d ", line[ x ] );
-	}
-	//printf( "\n" );
+		}
 	_writeoutline( line, IMWD );
-}
+	}
+
 	_closeoutpgm();
 	printf( "DataOutStream:Done...\n" );
+	toTimer <: 0;
+	toTimer :> end;
+	toTimer <: SHUTDOWN;
+	printf("From Timer %u minute %u.%06us\n", end/1000000/60, (end/1000000)%60, end%1000000);
+	printf("Elapsed time: %u minute %u.%06us\n", (end - start)/1000000/60, ((end - start)/1000000) % 60, (end - start)%1000000);
 	return;
 }
-//MAIN PROCESS defining channels, orchestrating and starting the threads
+
+//microsecond timer, overflow in about an hour
+void Timer(chanend fromCollector) {
+	int running = 1;
+	timer tmr;
+	uint time, startTime;
+	uint val;
+	uint counter = 0;
+	int aboutToOverflow = 0;
+	tmr :> time;
+	startTime = time/100;
+
+	if (time > 2147483647)
+		aboutToOverflow = 1;
+
+	while (running) {
+		select {
+			case fromCollector :> val:
+			{
+				if (val == SHUTDOWN)
+					running = 0;
+				else {
+					tmr :> val;
+					if (val > 2147483647)
+						aboutToOverflow = 1;
+
+					if (aboutToOverflow && val < 2147483647) {
+						aboutToOverflow = 0;
+						counter++;
+					}
+					val = counter * 42949673 + val/100 - startTime;
+					// 42950 and val/100000 for milliseconds,
+					fromCollector <: val;
+				}
+
+				break;
+			}
+
+			case tmr when timerafter(time + 1000000000) :> void:
+			{
+
+				// Check every 10 seconds anyway
+				tmr :> time;
+				if (time > 2147483647) aboutToOverflow = 1;
+
+				if (aboutToOverflow && time < 2147483647) {
+					aboutToOverflow = 0;
+					counter++;
+				}
+
+				break;
+			}
+
+			default:
+				break;
+		}
+	}
+}
+
+
 int main() {
 	chan c_inIO, c_outIO; //extend your channel definitions here
 	chan distributorToWorkers[noWorkers];
@@ -368,14 +449,16 @@ int main() {
 	chan toVisualiser;
 	chan buttonsToDataIn;
 	chan quadrant[4];
+	chan toTimer;
 	par //extend/change this par statement to implement your concurrent filter
 	{
 		on stdcore[0] : visualiser(toVisualiser, quadrant);
 		on stdcore[0] : buttonListener(buttons, buttonsToDataIn);
 		on stdcore[1] : DataInStream( infname, c_inIO, buttonsToDataIn );
 		on stdcore[1] : distributor( c_inIO, distributorToWorkers);
+		on stdcore[3] : Timer(toTimer);
 		on stdcore[3] : collector(workerToCollector, c_outIO, toVisualiser);
-		on stdcore[3]:DataOutStream( outfname, c_outIO );
+		on stdcore[3] : DataOutStream( outfname, c_outIO, toTimer);
 		par (int k = 0; k<noWorkers; k++) {
 			on stdcore[k%4]: worker(distributorToWorkers[k],workerToCollector[k], k);
 		}
