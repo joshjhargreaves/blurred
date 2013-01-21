@@ -222,6 +222,7 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 		for (int x=0; x<IMWD; x++) {
 			select {
 				case fromButtons :> value:
+					fromButtons <: 1;
 					if(value == 13) {
 						printf("paused\n");
 						while(1) {
