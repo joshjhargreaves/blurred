@@ -256,32 +256,6 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 	printf( "DataInStream:Done...\n" );
 	return;
 }
-void timer(channend toCollector) {
-	timer tmr;
-	int running = 1;
-	int overflowFlag = 0;
-	uint currentTime, startTime, value, count = 0;
-	tmr :> currentTime;
-	startTime = time/100;
-	if(startTime > 2147483647) {
-		overflowFlag = 1;
-	}
-	while(running) {
-		select {
-			case toCollector :> value:
-				if(value == SHUTDOWN) running = 0;
-				else {
-					tmr :> value;
-					if(value > 2147483647) overflowFlag = 1;
-				}
-				if((value < 2147483647) && (overflowFlag == 1)) {
-					counter++;
-					overflowFlag = 1;
-				}
-				value = counter * 42949673 + val/100 -  startTime;
-		}
-	}
-}
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Start your implementation by changing this function to farm out parts of the image...
