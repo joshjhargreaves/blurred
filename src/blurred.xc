@@ -114,8 +114,13 @@ void worker(chanend c_in, chanend c_out, int id) {
 		for(int k=0;k<width;k++) {
 			c_in :> temp1;
 			tempArray[j%3][k] = (uchar)temp1;
+			if((j>=2) && (k>=2)) {
+				result = tempArray[0][k-2] + tempArray[0][k-1] + tempArray[0][k] +
+						tempArray[1][k-2] + tempArray[1][k-1] + tempArray[1][k] + tempArray[2][k-2] + tempArray[2][k-1] + tempArray[2][k];
+				c_out <: (uchar)(result/9);
+			}
 		}
-		if(j>=2) {
+		/*if(j>=2) {
 			result = 0;
 			for(int i=1;i<width-1;i++) {
 				int temp = (i-1)%4;
@@ -124,7 +129,7 @@ void worker(chanend c_in, chanend c_out, int id) {
 							 + (int)tempArray[plusOne][i] + (int)tempArray[plusOne][i-1] + (int)tempArray[currentLine][i];
 				c_out <: (uchar)(result/9);
 			}
-		}
+		}*/
 	}
 	printf("worker done\n");
 	c_in :> temp1;
@@ -350,16 +355,12 @@ void DataOutStream(char outfname[], chanend c_in, chanend toTimer) {
 void Timer(chanend fromCollector) {
 	int running = 1;
 	timer tmr;
-	uint time, startTime;
-	uint val;
-	uint counter = 0;
+	uint time, startTime, val, counter = 0;
 	int aboutToOverflow = 0;
 	tmr :> time;
 	startTime = time/100;
-
 	if (time > 2147483647)
 		aboutToOverflow = 1;
-
 	while (running) {
 		select {
 			case fromCollector :> val:
