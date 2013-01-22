@@ -50,11 +50,11 @@ void showLED(out port p, chanend fromDataIn) {
 }
 
 void waitMoment(uint myTime) {
-	timer tmr;
+	timer Timer;
 	uint waitTime;
-	tmr :> waitTime;
+	Timer :> waitTime;
 	waitTime += myTime;
-	tmr when timerafter(waitTime) :> void;
+	Timer when timerafter(waitTime) :> void;
 }
 
 void visualiser(chanend c_in, chanend toQuadrant[]) {
@@ -103,7 +103,7 @@ void worker(chanend c_in, chanend c_out, int id) {
 	int result = 0;
 	uchar tempArray[3][bufferWidth];
 	int width = bufferWidth;
-	int counter = 0;
+	int overflowCount = 0;
 	if(id==0 || id == noWorkers-1) {
 		width--;
 	}
@@ -346,59 +346,60 @@ void DataOutStream(char outfname[], chanend c_in, chanend toTimer) {
 	toTimer :> end;
 	toTimer <: SHUTDOWN;
 	printf("From Timer %u minute %u.%06us\n", end/1000000/60, (end/1000000)%60, end%1000000);
-	printf("Elapsed time: %u minute %u.%06us\n", (end - start)/1000000/60, ((end - start)/1000000) % 60, (end - start)%1000000);
+	printf("Elapsed currentTime: %u minute %u.%06us\n", (end - start)/1000000/60, ((end - start)/1000000) % 60, (end - start)%1000000);
 	printf( "DataOutStream:Done...\n" );
 	return;
 }
 
-//microsecond timer, overflow in about an hour
 void Timer(chanend fromCollector) {
-	int running = 1;
-	timer tmr;
-	uint time, startTime, val, counter = 0;
-	int aboutToOverflow = 0;
-	tmr :> time;
-	startTime = time/100;
-	if (time > 2147483647)
-		aboutToOverflow = 1;
+	/* OverflowFlag tells you if the Timer is in the 'second half' of the integer
+	 * This means that once this flag is set, you can tell if the timer has
+	 * Overflowed i.e if the timer then gives a timer which is in the first half
+	 * of an integer. I.e less than 2147483647 and the flag is set, then you
+	 * have an overflow
+	 */
+	uint currentTime, startTime, val, overflowCount = 0;
+	int running = 1, overflowFlag = 0;
+	timer Timer;
+	Timer :> currentTime;
+	//the timer counts in nanoseconds, so to stop it overflowing in such a short
+	//period we're going to change the resolution to microseconds
+	startTime = currentTime/100;
+	if (currentTime > 2147483647) overflowFlag = 1;
 	while (running) {
 		select {
 			case fromCollector :> val:
 			{
-				if (val == SHUTDOWN)
-					running = 0;
+				if (val == SHUTDOWN) running = 0;
 				else {
-					tmr :> val;
-					if (val > 2147483647)
-						aboutToOverflow = 1;
-
-					if (aboutToOverflow && val < 2147483647) {
-						aboutToOverflow = 0;
-						counter++;
+					Timer :> val;
+					//checks for overflow whenever a time is requested
+					if (val > 2147483647) overflowFlag = 1;
+					if (overflowFlag && val < 2147483647) {
+						overflowFlag = 0;
+						overflowCount++;
 					}
-					val = counter * 42949673 + val/100 - startTime;
-					// 42950 and val/100000 for milliseconds,
+					/*The time we return is going to be the number of times the timer has
+					 * overflowed * by the number of microseconds that occur during one overflow of the nanosecond uint
+					 * counter, multiplied by the latest value from the timer - the start time
+					 * Obviously to accurately count in microseconds we need to be 10x10^7 right until the last
+					 * calculation
+					 */
+					val = overflowCount * 42949673 + val/100 - startTime;
 					fromCollector <: val;
 				}
-
 				break;
 			}
-
-			case tmr when timerafter(time + 1000000000) :> void:
+			case Timer when timerafter(currentTime + 500000000) :> void:
 			{
-
-				// Check every 10 seconds anyway
-				tmr :> time;
-				if (time > 2147483647) aboutToOverflow = 1;
-
-				if (aboutToOverflow && time < 2147483647) {
-					aboutToOverflow = 0;
-					counter++;
+				Timer :> currentTime;
+				if (currentTime > 2147483647) overflowFlag = 1;
+				if (overflowFlag && currentTime < 2147483647) {
+					overflowCount++;
+					overflowFlag = 0;
 				}
-
 				break;
 			}
-
 			default:
 				break;
 		}
