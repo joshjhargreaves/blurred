@@ -164,6 +164,7 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 				{
 					for (int j = 0; j < selection-1; j++) {
 						fromWorkers[0] :> w0[j];
+						c_out <: w0[j];
 					}
 				}
 				{
@@ -182,9 +183,9 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 					}
 				}
 		}
-		for(int j = 0; j<selection-1;j++) {
+		/*for(int j = 0; j<selection-1;j++) {
 			c_out <: w0[j];
-		}
+		}*/
 		for(int j = 0;j < selection;j++) {
 			c_out <: w1[j];
 		}
@@ -243,7 +244,9 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 				 default:
 					break;
 			}
-			c_out  <: (int)line[ x ];
+			master {
+				c_out  <: (int)line[ x ];
+			}
 		//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
 		}
 	//printf( "\n" ); //uncomment to show image values
@@ -284,7 +287,9 @@ void distributor(chanend c_in, chanend c_out[]) {
 		flag = 0;
 		total = divided;
 		for (int x = 0; x < IMWD; x++) {
-			c_in :> tempValue;
+			slave {
+				c_in :> tempValue;
+			}
 			if(flag) {
 				c_out[(workers)-1] <: tempValue;
 				flag = 0;
@@ -390,7 +395,7 @@ void Timer(chanend fromCollector) {
 				}
 				break;
 			}
-			case Timer when timerafter(currentTime + 500000000) :> void:
+			case Timer when timerafter(currentTime + 1000000000) :> void:
 			{
 				Timer :> currentTime;
 				if (currentTime > 2147483647) overflowFlag = 1;
