@@ -10,16 +10,17 @@ typedef unsigned char uchar;
 #include <platform.h>
 #include <stdio.h>
 #include "pgmIO.h"
-#define IMHT 512
-#define IMWD 512
+#define IMHT 16
+#define IMWD 16
 #define noWorkers 4
 #define bufferWidth (IMWD/noWorkers)+2
 #define selection (IMWD/noWorkers)
 #define divided IMWD/noWorkers
 #define SHUTDOWN 1000000
-#define noBlurs 1
+#define noBlurs 20
 #define INIT 12341234
-char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\lena.pgm"; //put your input image path here
+//#define USB
+char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\test0.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
 char tempFile1[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
 char tempFile2[] = "C:\\Users\\Josh\\Documents\\cimages\\temp2.pgm";
@@ -29,6 +30,7 @@ out port cledR = PORT_CLOCKLED_SELR;
 in port  buttons = PORT_BUTTON;
 out port speaker = PORT_SPEAKER;
 
+//DISPLAYS an LED pattern in one quadrant of the clock LEDs
 void showLED(out port p, chanend fromDataIn) {
 	unsigned int lightUpPattern;
 	unsigned int running = 1;
@@ -45,6 +47,7 @@ void showLED(out port p, chanend fromDataIn) {
 	}
 }
 
+//Waits a specified amount of time
 void waitMoment(uint myTime) {
 	timer Timer;
 	uint waitTime;
@@ -53,25 +56,31 @@ void waitMoment(uint myTime) {
 	Timer when timerafter(waitTime) :> void;
 }
 
+//displays the progress of the blur on the lights on the board
 void visualiser(chanend c_in, chanend toQuadrant[]) {
 	int progress = 0, running = 1, i;
+	//sets the colour to red
 	cledR <: 1;
+	//the visualiser keeps running until it reads a shutdown
 	while (running) {
 		c_in :> i;
 		if (i == SHUTDOWN) {
 			running = 0;
 		} else {
+			//works out how many leds to light up proportionate to
+			//how much of the image has been processed
 			progress = 12 * i/IMHT;
 			i = (1 << progress) - 1;
+			//sends the correct light up pattern to the corrects quadrants
 			for (int j = 0; j < 4; j++) {
 				toQuadrant[j] <: (((i>> (3 * j)) & 0b111)) << 4;
 			}
 		}
 	}
+	//tells all quadrants to shutdown
 	for (int j = 0; j < 4; j++) {
-		toQuadrant[j] <: SHUTDOWN; //send shutdown flag to all quadrants
+		toQuadrant[j] <: SHUTDOWN;
 	}
-	//printf("Visualiser:Done...\n");
 }
 
 //READ BUTTONS and send commands to Distributor
@@ -94,22 +103,23 @@ void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 /////////////////////////////////////////////////////////////////////////////////////////
 void worker(chanend c_in, chanend c_out, int id) {
 	int temp1 = 0;
-	int running = 1;
 	int result = 0;
 	uchar tempArray[3][bufferWidth];
 	int width = bufferWidth;
 	int overflowCount = 0;
+	//the first worker and the last worker get one less pixel to blur
 	if(id==0 || id == noWorkers-1) {
 		width--;
 	}
+	//loops the number of times the image should be blurred
 	for(int l=0;l<noBlurs;l++) {
+		//gets the correct number of pixels from the distributor
 		for(int j=0;j<IMHT;j++) {
-			int plusOne = (j)%3;
-			int minusOne = (j-2)%3;
-			int currentLine = (j-1)%3;
+			//gets the line pixel by pixel;
 			for(int k=0;k<width;k++) {
 				c_in :> temp1;
 				tempArray[j%3][k] = (uchar)temp1;
+				//as soon as the worker has enough information it can start working out the averages straight away
 				if((j>=2) && (k>=2)) {
 					result = tempArray[0][k-2] + tempArray[0][k-1] + tempArray[0][k] +
 							tempArray[1][k-2] + tempArray[1][k-1] + tempArray[1][k] + tempArray[2][k-2] + tempArray[2][k-1] + tempArray[2][k];
@@ -118,38 +128,37 @@ void worker(chanend c_in, chanend c_out, int id) {
 			}
 		}
 	}
+	//waits to be told to shutdown
 	c_in :> temp1;
 	c_out <: SHUTDOWN;
 }
+
 void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
-	uchar black = 0;
 	int number = 0;
-	uchar tempValue1, tempValue2;
+	uchar black = 0;
 	int width = IMWD/noWorkers;
 	uchar w0[selection-1], w1[selection], w2[selection], w3[selection-1];
 	for(int l = 0; l<noBlurs; l++) {
 		toVisualiser <: 1;
+		//writes a line of black at the top of the image
 		for(int i=0;i<IMWD;i++) {
 			c_out <: black;
 			number++;
 		}
+		//loops through the lines in the image
 		for(int j=1;j<IMHT-1;j++) {
 			int worker = 0;
 			int total = divided;
+			//puts a black pixel at the beginning of the line
 			c_out <: black;
-			/*for (int x = 0; x < IMWD-2; x++) {
-				if(x == total-1 ) {
-					worker++;
-					total = (worker+1)*divided;
-				}
-				//printf("worker = %d\n", worker);
-				fromWorkers[worker] :> tempValue1;
-				c_out <: tempValue1;
-			}*/
+			//recieves from each of the four workers in parallel
+			//needed to 'hard code' this for four workers as each
+			//thread needs it's own individual variable to store in
 			par {
 					{
 						for (int j = 0; j < selection-1; j++) {
 							fromWorkers[0] :> w0[j];
+							//outputs pixels from first worker straight away to save having loop on outside
 							c_out <: w0[j];
 						}
 					}
@@ -169,6 +178,7 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 						}
 					}
 			}
+			//outputs all the pixels from the workers in order
 			for(int j = 0;j < selection;j++) {
 				c_out <: w1[j];
 			}
@@ -182,28 +192,36 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 			toVisualiser <: j+1;
 		}
 		toVisualiser <: IMHT;
+		//writes a line of black
 		for(int i=0;i<IMWD;i++) {
 			c_out <: black;
 		}
 	}
+	//waits for all the workers to tell it to shutdown
 	for(int i=0; i<noWorkers;i++) {
 		fromWorkers[i] :> number;
 	}
 	toVisualiser <: SHUTDOWN;
 }
+//gets a one line filled up at a time from by the pgm c files and then sends each pixel one at a time to the
+//distributor
 void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend toDataOut, chanend toTimer) {
 	int res;
 	uchar line[IMWD];
 	int button = 0;
 	int value = 0;
+	//waits for the start buttons to be pressed
 	while(button != 14) {
 		fromButtons :> button;
 		fromButtons <: 1;
 	}
 	printf("DataInStream:Start...\n");
+	//tells the timer to start counting the start time from 'now'
 	toTimer <: INIT;
 	for(int l=0;l<noBlurs;l++) {
 		int ack;
+		//if the number of blurs is more than one than temporary files need to be used
+		//as you can't read and write to the same file
 		if(l == 0)
 			res = _openinpgm(infname, IMWD, IMHT);
 		else if((l%2))
@@ -215,8 +233,13 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 			return;
 		}
 		for (int y = 0; y < IMHT; y++) {
+			//attempt at time how long it takes to read in a line
 			toTimer <: 0;
-			_readinline(line, IMWD);
+			//if USB is defined the it acts as normal, otherwise it just sends dummy values
+			//to test the speed of the system without usb
+			#ifdef USB
+				_readinline(line, IMWD);
+			#endif
 			toTimer <: 0;
 			for (int x=0; x<IMWD; x++) {
 				select {
@@ -224,6 +247,8 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 						fromButtons <: 1;
 						if(value == 13) {
 							printf("paused\n");
+							//when paused it waits to be unpaused and only beaks loop if button
+							//pressed again
 							while(1) {
 								fromButtons :> value;
 								fromButtons <: 1;
@@ -238,15 +263,20 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 						break;
 				}
 				master {
-					c_out  <: (int)line[ x ];
+					//if USB undefined just sends 0 as dummy value
+					#ifdef USB
+						c_out  <: (int)line[ x ];
+					#else
+						c_out <: 0;
+					#endif
 				}
-			//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
 			}
-		//printf( "\n" ); //uncomment to show image values
 		}
 		_closeinpgm();
+		//waits for the dataout to tell this thread when it has finished writing to a file (for multiple blurs)
 		toDataOut :> ack;
 	}
+	//waits to be told to shutdown
 	while(1) {
 		fromButtons :> button;
 		if(button == 11) {
@@ -267,24 +297,24 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 void distributor(chanend c_in, chanend c_out[]) {
 	uchar val;
 	int currentLine = 1;
-	uchar tempArray[3][IMWD];
 	int tempValue;
 	int flag = 0;
 	printf("ProcessImage:Start, size = %dx%d\n", IMHT, IMWD);
-	//This code is to be replaced – it is a place holder for farming out the work...
+	//This code is to be replaced â€“ it is a place holder for farming out the work...
 	for(int l=0;l<noBlurs;l++) {
 		for (int y = 0; y < IMHT; y++) {
-			int plusOne = (y)%3;
-			int minusOne = (y-2)%3;
-			int worker = 0, count = 0, total = 0;
+			int count = 0, total = 0;
 			int workers = 0;
 			currentLine = (y-1)%3;
 			flag = 0;
 			total = divided;
 			for (int x = 0; x < IMWD; x++) {
+				//async channel, gains slight speed up
 				slave {
 					c_in :> tempValue;
 				}
+				//works out if it should send pixel to two workers
+				//i.e overlapping columns
 				if(flag) {
 					c_out[(workers)-1] <: tempValue;
 					flag = 0;
@@ -336,7 +366,9 @@ void DataOutStream(char outfname[], chanend c_in, chanend dataoutToTimer, chanen
 			}
 		//printf( "\n" );
 			dataoutToTimer <: INIT;
-			_writeoutline( line, IMWD );
+			#ifdef USB
+				_writeoutline( line, IMWD );
+			#endif
 			dataoutToTimer <: INIT;
 		}
 
@@ -359,7 +391,7 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 	int running = 1, overflowFlag = 0;
 	int onceFlag = 0;
 	int flag = 0, dataoutFlag = 0;
-	uint readinTime = 0, start = 0, dataStart = 0, dataReadinTime;
+	uint readinTime = 0, start = 0, dataStart = 0, dataReadinTime = 0;
 	timer Timer;
 	Timer :> currentTime;
 	//the timer counts in nanoseconds, so to stop it overflowing in such a short
@@ -387,15 +419,17 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 					 */
 					val = overflowCount * 42949673 + val/100 - startTime;
 					if(value != INIT) {
+						printf("The throughput including usb is %d pixels per second\n", (IMHT*IMWD)/(val/1000000));
 						printf("Process took %u minutes %u.%06us\n", val/1000000/60, (val/1000000)%60, val%1000000);
-						val = val - readinTime- dataReadinTime;
-						printf("Process without usb took %u minutes %u.%06us\n", (val)/1000000/60, ((val)/1000000)%60, (val)%1000000);
-						printf("Throughput without including usb time = %u pixels per second\n", IMHT*IMWD/val/1000000);
+						/*printf("ReadinTime = %u minutes %u.%06us\n", readinTime/1000000/60, (readinTime/1000000)%60, readinTime%1000000);
+						printf("DataReadinTime = %u minutes %u.%06us\n", dataReadinTime/1000000/60, (dataReadinTime/1000000)%60, dataReadinTime%1000000);
+						printf("Process without usb took %u minutes %u.%06us\n", (val-readinTime- dataReadinTime)/1000000/60, ((val-readinTime-dataReadinTime)/1000000)%60, (val-readinTime-dataReadinTime)%1000000);
+						printf("The throughput w/o usb is %u pixels per second\n", ((IMHT*IMWD)/(val-readinTime-dataReadinTime)/1000000));*/
 					} else if(!dataoutFlag) {
 						dataStart = val;
 						dataoutFlag = 1;
 					} else {
-						dataReadinTime+=val-dataStart;
+						dataReadinTime = dataReadinTime+(val-dataStart);
 						dataoutFlag = 0;
 					}
 				}
@@ -413,10 +447,10 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 				if(value == INIT)
 					startTime = overflowCount * 42949673 + val/100;
 				else if(!flag) {
-					start = val;
+					start = overflowCount * 42949673 + val/100;
 					flag = 1;
 				} else {
-					readinTime = val-start + readinTime;
+					readinTime = (overflowCount * 42949673) + val/100 - start + readinTime;
 					flag = 0;
 				}
 				break;
