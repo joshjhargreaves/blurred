@@ -18,8 +18,11 @@ typedef unsigned char uchar;
 #define selection (IMWD/noWorkers)
 #define divided IMWD/noWorkers
 #define SHUTDOWN 1000000
+#define noBlurs 1
 char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\BristolCathedral.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
+char tempFile1[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
+char tempFile2[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
 out port cledG = PORT_CLOCKLED_SELG;
 out port cledR = PORT_CLOCKLED_SELR;
@@ -107,29 +110,31 @@ void worker(chanend c_in, chanend c_out, int id) {
 	if(id==0 || id == noWorkers-1) {
 		width--;
 	}
-	for(int j=0;j<IMHT;j++) {
-		int plusOne = (j)%3;
-		int minusOne = (j-2)%3;
-		int currentLine = (j-1)%3;
-		for(int k=0;k<width;k++) {
-			c_in :> temp1;
-			tempArray[j%3][k] = (uchar)temp1;
-			if((j>=2) && (k>=2)) {
-				result = tempArray[0][k-2] + tempArray[0][k-1] + tempArray[0][k] +
-						tempArray[1][k-2] + tempArray[1][k-1] + tempArray[1][k] + tempArray[2][k-2] + tempArray[2][k-1] + tempArray[2][k];
-				c_out <: (uchar)(result/9);
+	for(int l=0;l<noBlurs;l++) {
+		for(int j=0;j<IMHT;j++) {
+			int plusOne = (j)%3;
+			int minusOne = (j-2)%3;
+			int currentLine = (j-1)%3;
+			for(int k=0;k<width;k++) {
+				c_in :> temp1;
+				tempArray[j%3][k] = (uchar)temp1;
+				if((j>=2) && (k>=2)) {
+					result = tempArray[0][k-2] + tempArray[0][k-1] + tempArray[0][k] +
+							tempArray[1][k-2] + tempArray[1][k-1] + tempArray[1][k] + tempArray[2][k-2] + tempArray[2][k-1] + tempArray[2][k];
+					c_out <: (uchar)(result/9);
+				}
 			}
+			/*if(j>=2) {
+				result = 0;
+				for(int i=1;i<width-1;i++) {
+					int temp = (i-1)%4;
+					result = (int)tempArray[currentLine][i-1] + (int)tempArray[minusOne][i-1] + (int)tempArray[minusOne][i]
+								+ (int)tempArray[minusOne][i+1] + (int)tempArray[currentLine][i+1] + (int)tempArray[plusOne][i+1]
+								 + (int)tempArray[plusOne][i] + (int)tempArray[plusOne][i-1] + (int)tempArray[currentLine][i];
+					c_out <: (uchar)(result/9);
+				}
+			}*/
 		}
-		/*if(j>=2) {
-			result = 0;
-			for(int i=1;i<width-1;i++) {
-				int temp = (i-1)%4;
-				result = (int)tempArray[currentLine][i-1] + (int)tempArray[minusOne][i-1] + (int)tempArray[minusOne][i]
-							+ (int)tempArray[minusOne][i+1] + (int)tempArray[currentLine][i+1] + (int)tempArray[plusOne][i+1]
-							 + (int)tempArray[plusOne][i] + (int)tempArray[plusOne][i-1] + (int)tempArray[currentLine][i];
-				c_out <: (uchar)(result/9);
-			}
-		}*/
 	}
 	printf("worker done\n");
 	c_in :> temp1;
@@ -142,65 +147,67 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 	uchar tempValue1, tempValue2;
 	int width = IMWD/noWorkers;
 	uchar w0[selection-1], w1[selection], w2[selection], w3[selection-1];
-	toVisualiser <: 1;
-	for(int i=0;i<IMWD;i++) {
-		c_out <: black;
-		number++;
-	}
-	for(int j=1;j<IMHT-1;j++) {
-		int worker = 0;
-		int total = divided;
-		c_out <: black;
-		/*for (int x = 0; x < IMWD-2; x++) {
-			if(x == total-1 ) {
-				worker++;
-				total = (worker+1)*divided;
+	for(int l = 0; l<noBlurs; l++) {
+		toVisualiser <: 1;
+		for(int i=0;i<IMWD;i++) {
+			c_out <: black;
+			number++;
+		}
+		for(int j=1;j<IMHT-1;j++) {
+			int worker = 0;
+			int total = divided;
+			c_out <: black;
+			/*for (int x = 0; x < IMWD-2; x++) {
+				if(x == total-1 ) {
+					worker++;
+					total = (worker+1)*divided;
+				}
+				//printf("worker = %d\n", worker);
+				fromWorkers[worker] :> tempValue1;
+				c_out <: tempValue1;
+			}*/
+			par {
+					{
+						for (int j = 0; j < selection-1; j++) {
+							fromWorkers[0] :> w0[j];
+							c_out <: w0[j];
+						}
+					}
+					{
+						for (int j = 0; j < (selection); j++) {
+							fromWorkers[1] :> w1[j];
+						}
+					}
+					{
+						for (int j = 0; j < (selection); j++) {
+							fromWorkers[2] :> w2[j];
+						}
+					}
+					{
+						for (int j = 0; j < (selection-1); j++) {
+							fromWorkers[3] :> w3[j];
+						}
+					}
 			}
-			//printf("worker = %d\n", worker);
-			fromWorkers[worker] :> tempValue1;
-			c_out <: tempValue1;
-		}*/
-		par {
-				{
-					for (int j = 0; j < selection-1; j++) {
-						fromWorkers[0] :> w0[j];
-						c_out <: w0[j];
-					}
-				}
-				{
-					for (int j = 0; j < (selection); j++) {
-						fromWorkers[1] :> w1[j];
-					}
-				}
-				{
-					for (int j = 0; j < (selection); j++) {
-						fromWorkers[2] :> w2[j];
-					}
-				}
-				{
-					for (int j = 0; j < (selection-1); j++) {
-						fromWorkers[3] :> w3[j];
-					}
-				}
+			/*for(int j = 0; j<selection-1;j++) {
+				c_out <: w0[j];
+			}*/
+			for(int j = 0;j < selection;j++) {
+				c_out <: w1[j];
+			}
+			for(int j = 0;j < selection;j++) {
+				c_out <: w2[j];
+			}
+			for(int j = 0; j< selection-1; j++) {
+				c_out <: w3[j];
+			}
+			c_out <: black;
+			toVisualiser <: j+1;
 		}
-		/*for(int j = 0; j<selection-1;j++) {
-			c_out <: w0[j];
-		}*/
-		for(int j = 0;j < selection;j++) {
-			c_out <: w1[j];
+		toVisualiser <: IMHT;
+		for(int i=0;i<IMWD;i++) {
+			c_out <: black;
 		}
-		for(int j = 0;j < selection;j++) {
-			c_out <: w2[j];
-		}
-		for(int j = 0; j< selection-1; j++) {
-			c_out <: w3[j];
-		}
-		c_out <: black;
-		toVisualiser <: j+1;
-	}
-	toVisualiser <: IMHT;
-	for(int i=0;i<IMWD;i++) {
-		c_out <: black;
 	}
 	for(int i=0; i<noWorkers;i++) {
 		fromWorkers[i] :> number;
@@ -208,7 +215,7 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 	toVisualiser <: SHUTDOWN;
 	printf("collector done\n");
 }
-void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
+void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend toDataOut) {
 	int res;
 	uchar line[IMWD];
 	int button = 0;
@@ -218,40 +225,44 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons) {
 		fromButtons <: 1;
 	}
 	printf("DataInStream:Start...\n");
-	res = _openinpgm(infname, IMWD, IMHT);
-	if (res) {
-		printf("DataInStream:Error openening %s\n.", infname);
-		return;
-	}
-	for (int y = 0; y < IMHT; y++) {
-		_readinline(line, IMWD);
-		for (int x=0; x<IMWD; x++) {
-			select {
-				case fromButtons :> value:
-					fromButtons <: 1;
-					if(value == 13) {
-						printf("paused\n");
-						while(1) {
-							fromButtons :> value;
-							fromButtons <: 1;
-							if(value == 13) {
-								printf("unpaused\n");
-								break;
+	for(int l=0;l<noBlurs;l++) {
+		int ack;
+		res = _openinpgm(infname, IMWD, IMHT);
+		if (res) {
+			printf("DataInStream:Error openening %s\n.", infname);
+			return;
+		}
+		for (int y = 0; y < IMHT; y++) {
+			_readinline(line, IMWD);
+			for (int x=0; x<IMWD; x++) {
+				select {
+					case fromButtons :> value:
+						fromButtons <: 1;
+						if(value == 13) {
+							printf("paused\n");
+							while(1) {
+								fromButtons :> value;
+								fromButtons <: 1;
+								if(value == 13) {
+									printf("unpaused\n");
+									break;
+								}
 							}
 						}
-					}
-					break;
-				 default:
-					break;
+						break;
+					 default:
+						break;
+				}
+				master {
+					c_out  <: (int)line[ x ];
+				}
+			//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
 			}
-			master {
-				c_out  <: (int)line[ x ];
-			}
-		//printf( "-%4.1d ", line[ x ] ); //uncomment to show image values
+		//printf( "\n" ); //uncomment to show image values
 		}
-	//printf( "\n" ); //uncomment to show image values
+		_closeinpgm();
+		toDataOut :> ack;
 	}
-	_closeinpgm();
 	while(1) {
 		fromButtons :> button;
 		if(button == 11) {
@@ -278,33 +289,35 @@ void distributor(chanend c_in, chanend c_out[]) {
 	int flag = 0;
 	printf("ProcessImage:Start, size = %dx%d\n", IMHT, IMWD);
 	//This code is to be replaced – it is a place holder for farming out the work...
-	for (int y = 0; y < IMHT; y++) {
-		int plusOne = (y)%3;
-		int minusOne = (y-2)%3;
-		int worker = 0, count = 0, total = 0;
-		int workers = 0;
-		currentLine = (y-1)%3;
-		flag = 0;
-		total = divided;
-		for (int x = 0; x < IMWD; x++) {
-			slave {
-				c_in :> tempValue;
-			}
-			if(flag) {
-				c_out[(workers)-1] <: tempValue;
-				flag = 0;
-			}
-			if(x+1 >= total && workers+1<noWorkers) {
-				workers++;
-				total = (workers+1)*divided;
-				flag = 1;
-			}
-			c_out[workers] <: tempValue;
-			if(flag) {
-				c_out[workers-1] <: tempValue;
+	for(int l=0;l<noBlurs;l++) {
+		for (int y = 0; y < IMHT; y++) {
+			int plusOne = (y)%3;
+			int minusOne = (y-2)%3;
+			int worker = 0, count = 0, total = 0;
+			int workers = 0;
+			currentLine = (y-1)%3;
+			flag = 0;
+			total = divided;
+			for (int x = 0; x < IMWD; x++) {
+				slave {
+					c_in :> tempValue;
+				}
+				if(flag) {
+					c_out[(workers)-1] <: tempValue;
+					flag = 0;
+				}
+				if(x+1 >= total && workers+1<noWorkers) {
+					workers++;
+					total = (workers+1)*divided;
+					flag = 1;
+				}
+				c_out[workers] <: tempValue;
+				if(flag) {
+					c_out[workers-1] <: tempValue;
 
+				}
+				//c_out <: (uchar)( val ^ 0xFF ); //Need to cast
 			}
-			//c_out <: (uchar)( val ^ 0xFF ); //Need to cast
 		}
 	}
 	printf( "ProcessImage:Done...\n" );
@@ -324,7 +337,7 @@ void distributor(chanend c_in, chanend c_out[]) {
 // Write pixel stream from channel c_in to pgm image file
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataOutStream(char outfname[], chanend c_in, chanend toTimer) {
+void DataOutStream(char outfname[], chanend c_in, chanend toTimer, chanend toDataIn) {
 	int res;
 	uchar line[IMWD];
 	uint start, end;
@@ -333,20 +346,24 @@ void DataOutStream(char outfname[], chanend c_in, chanend toTimer) {
 	toTimer <: 0;
 	toTimer :> start;
 	printf("From Timer %u minute %u.%06us\n", start/1000000/60, (start/1000000)%60, start%1000000);
-	res = _openoutpgm(outfname, IMWD, IMHT);
-	if (res) {
-		printf("DataOutStream:Error opening %s\n.", outfname);
-		return;
+	for(int l=0;l<noBlurs;l++) {
+		res = _openoutpgm(outfname, IMWD, IMHT);
+		if (res) {
+			printf("DataOutStream:Error opening %s\n.", outfname);
+			return;
+		}
+		for (int y = 0; y < IMHT; y++) {
+			for (int x = 0; x < IMWD; x++) {
+				c_in :> line[ x ];
+			//printf( "+%4.1d ", line[ x ] );
+			}
+		//printf( "\n" );
+			_writeoutline( line, IMWD );
+		}
+
+		_closeoutpgm();
+		toDataIn <: 1;
 	}
-	for (int y = 0; y < IMHT; y++) {
-		for (int x = 0; x < IMWD; x++) {
-		c_in :> line[ x ];
-		//printf( "+%4.1d ", line[ x ] );
-	}
-	//printf( "\n" );
-	_writeoutline( line, IMWD );
-	}
-	_closeoutpgm();
 	toTimer <: 0;
 	toTimer :> end;
 	toTimer <: SHUTDOWN;
@@ -418,6 +435,7 @@ int main() {
 	chan workerToCollector[noWorkers];
 	chan toVisualiser;
 	chan buttonsToDataIn;
+	chan dataOutToDataIn;
 	chan quadrant[4];
 	chan toTimer;
 	par //extend/change this par statement to implement your concurrent filter
@@ -425,10 +443,10 @@ int main() {
 		on stdcore[0] : visualiser(toVisualiser, quadrant);
 		on stdcore[0] : buttonListener(buttons, buttonsToDataIn);
 		on stdcore[0] : Timer(toTimer);
-		on stdcore[1] : DataInStream( infname, c_inIO, buttonsToDataIn );
+		on stdcore[1] : DataInStream( infname, c_inIO, buttonsToDataIn, dataOutToDataIn);
 		on stdcore[1] : distributor( c_inIO, distributorToWorkers);
 		on stdcore[3] : collector(workerToCollector, c_outIO, toVisualiser);
-		on stdcore[3] : DataOutStream( outfname, c_outIO, toTimer);
+		on stdcore[3] : DataOutStream( outfname, c_outIO, toTimer, dataOutToDataIn);
 		par (int k = 0; k<noWorkers; k++) {
 			on stdcore[k%4]: worker(distributorToWorkers[k],workerToCollector[k], k);
 		}
