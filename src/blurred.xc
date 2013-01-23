@@ -7,28 +7,46 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 typedef unsigned char uchar;
+
 #include <platform.h>
 #include <stdio.h>
 #include "pgmIO.h"
-#define IMHT 16
-#define IMWD 16
+
+#define IMHT 256
+#define IMWD 400
 #define noWorkers 4
 #define bufferWidth (IMWD/noWorkers)+2
 #define selection (IMWD/noWorkers)
 #define divided IMWD/noWorkers
 #define SHUTDOWN 1000000
-#define noBlurs 20
+#define noBlurs 1
 #define INIT 12341234
-//#define USB
-char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\test0.pgm"; //put your input image path here
-char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
+#define USB
+
+/*Defines which filter we want to use from the following list:
+ * 	0: Box Blur
+ * 	1: Edge Detection
+ */
+
+/*char filter[3][3] = {{1, 1, 1},
+					 { 1, 1, 1},
+					 { 1, 1, 1}};*/
+
+int filter[3][3] = {{0,   1, 0},
+					 { 1, -4, 1},
+					 { 0,  1, 0}};
+
+char infname[] = "/Users/den/Documents/tests/testB.pgm"; //put your input image path here
+char outfname[] = "/Users/den/Documents/tests/outputB.pgm"; //put your output image path here
 char tempFile1[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
 char tempFile2[] = "C:\\Users\\Josh\\Documents\\cimages\\temp2.pgm";
+
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
 out port cledG = PORT_CLOCKLED_SELG;
 out port cledR = PORT_CLOCKLED_SELR;
 in port  buttons = PORT_BUTTON;
 out port speaker = PORT_SPEAKER;
+
 
 //DISPLAYS an LED pattern in one quadrant of the clock LEDs
 void showLED(out port p, chanend fromDataIn) {
@@ -104,7 +122,7 @@ void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 void worker(chanend c_in, chanend c_out, int id) {
 	int temp1 = 0;
 	int result = 0;
-	uchar tempArray[3][bufferWidth];
+	int tempArray[3][bufferWidth];
 	int width = bufferWidth;
 	int overflowCount = 0;
 	//the first worker and the last worker get one less pixel to blur
@@ -118,12 +136,21 @@ void worker(chanend c_in, chanend c_out, int id) {
 			//gets the line pixel by pixel;
 			for(int k=0;k<width;k++) {
 				c_in :> temp1;
-				tempArray[j%3][k] = (uchar)temp1;
+				tempArray[j%3][k] = (int)temp1;
 				//as soon as the worker has enough information it can start working out the averages straight away
 				if((j>=2) && (k>=2)) {
-					result = tempArray[0][k-2] + tempArray[0][k-1] + tempArray[0][k] +
-							tempArray[1][k-2] + tempArray[1][k-1] + tempArray[1][k] + tempArray[2][k-2] + tempArray[2][k-1] + tempArray[2][k];
-					c_out <: (uchar)(result/9);
+					result = (tempArray[0][k-2]*filter[0][0]) + (tempArray[0][k-1]*filter[0][1]) + (tempArray[0][k]*filter[0][2]) +
+							(tempArray[1][k-2]*filter[1][0]) + (tempArray[1][k-1]*filter[1][1]) + (tempArray[1][k]*filter[1][2]) +
+							(tempArray[2][k-2]*filter[2][0]) + (tempArray[2][k-1]*filter[2][1]) + (tempArray[2][k]*filter[2][2]);
+
+					result = result/9;
+
+					if (result < 0)
+						result = 0;
+					else if (result > 255)
+						result = 255;
+
+					c_out <: (uchar)result;
 				}
 			}
 		}
@@ -419,7 +446,7 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 					 */
 					val = overflowCount * 42949673 + val/100 - startTime;
 					if(value != INIT) {
-						printf("The throughput including usb is %d pixels per second\n", (IMHT*IMWD)/(val/1000000));
+						//printf("The throughput including usb is %d pixels per second\n", (IMHT*IMWD)/(val/1000000));
 						printf("Process took %u minutes %u.%06us\n", val/1000000/60, (val/1000000)%60, val%1000000);
 						/*printf("ReadinTime = %u minutes %u.%06us\n", readinTime/1000000/60, (readinTime/1000000)%60, readinTime%1000000);
 						printf("DataReadinTime = %u minutes %u.%06us\n", dataReadinTime/1000000/60, (dataReadinTime/1000000)%60, dataReadinTime%1000000);
@@ -482,6 +509,7 @@ int main() {
 	chan quadrant[4];
 	chan dataoutToTimer;
 	chan datainToTimer;
+
 	par //extend/change this par statement to implement your concurrent filter
 	{
 		on stdcore[0] : visualiser(toVisualiser, quadrant);
