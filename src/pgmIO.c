@@ -8,9 +8,13 @@ FILE *_OUTFP = NULL;
 int _openinpgm(char fname[], int width, int height)
 {
 	char str[ 64 ];
+    char buffer[2048];
+
     int inwidth, inheight;
 
 	_INFP = fopen( fname, "rb" );
+    setvbuf(_INFP, buffer, _IOFBF, 2048);
+
 	if( _INFP == NULL )
 	{
 		printf( "Could not open %s.\n", fname );
@@ -129,12 +133,12 @@ int _writepgm(unsigned char x[], int height, int width, char fname[])
     char hdr[ 64 ];
     char buffer[2048];
 
+
     sprintf( hdr, "P5\n%d %d\n255\n", width, height );
     hlen = strlen( hdr );
 	printf( "In writepgm function, writing: %s\n", fname );
 
 	fp = fopen( fname, "wb" );
-    setvbuf(fp, buffer, _IOFBF, 2048);
 	if( fp == NULL)
 	{
 		printf( "Could not open %s for writing.\n", fname );
