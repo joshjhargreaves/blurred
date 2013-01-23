@@ -11,6 +11,7 @@ int _openinpgm(char fname[], int width, int height)
     int inwidth, inheight;
 
 	_INFP = fopen( fname, "rb" );
+	setvbuf(_INFP, NULL, _IOFBF, 4096);
 	if( _INFP == NULL )
 	{
 		printf( "Could not open %s.\n", fname );
@@ -114,64 +115,4 @@ int _closeoutpgm()
 		printf( "Error closing file _OUTFP.\n" );
 	}
 	return ret; //return zero for succes and EOF for fail
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-//Standard pgm IO:
-
-//Input is a referenced array of unsigned chars of width and height and a
-//referenced char array of the system path to destination, e.g.
-//"/home/user/xmos/project/" on Linux or "C:\\user\\xmos\\project\\" on Windows
-int _writepgm(unsigned char x[], int height, int width, char fname[])
-{
-    FILE *fp;
-    int hlen;
-    char hdr[ 64 ];
-    char buffer[2048];
-
-    sprintf( hdr, "P5\n%d %d\n255\n", width, height );
-    hlen = strlen( hdr );
-	printf( "In writepgm function, writing: %s\n", fname );
-
-	fp = fopen( fname, "wb" );
-    setvbuf(fp, buffer, _IOFBF, 2048);
-	if( fp == NULL)
-	{
-		printf( "Could not open %s for writing.\n", fname );
-		return -1;
-	}
-    fprintf( fp, "%s", hdr );
-    fwrite( x, width * height, 1, fp );
-    fclose( fp );
-    return 0;
-}
-
-int _readpgm(unsigned char x[], int height, int width, char fname[])
-{
-    FILE *fp;
-    int inwidth, inheight;
-    char str[ 64 ];
-    char buffer[2048];
-	printf( "In readpgm function, reading: %s\n", fname );
-
-	fp = fopen( fname, "rb" );
-    setvbuf(fp, buffer, _IOFBF, 2048);
-
-	if( fp == NULL)
-	{
-		printf( "Could not open %s for reading.\n", fname );
-		return -1;
-	}
-    fgets( str, 64, fp ); //Version: P5
-    fgets( str, 64, fp ); //width and height
-    sscanf( str, "%d%d", &inwidth, &inheight );
-    fgets( str, 64, fp ); //bit depth, must be 255
-    if( inwidth != width || inheight != height )
-    {
-    	printf( "Input image size(%dx%d) does not = %dx%d or trouble reading header\n", inwidth, inheight, width, height );
-    	return -1;
-    }
-    fread( x, inwidth * inheight, 1, fp );
-    fclose( fp );
-    return 0;
 }
