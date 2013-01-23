@@ -7,7 +7,6 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 typedef unsigned char uchar;
-
 #include <platform.h>
 #include <stdio.h>
 #include "pgmIO.h"
@@ -19,6 +18,7 @@ typedef unsigned char uchar;
 #define divided IMWD/noWorkers
 #define SHUTDOWN 1000000
 #define noBlurs 1
+#define INIT 12341234
 char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\lena.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
 char tempFile1[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
@@ -28,12 +28,6 @@ out port cledG = PORT_CLOCKLED_SELG;
 out port cledR = PORT_CLOCKLED_SELR;
 in port  buttons = PORT_BUTTON;
 out port speaker = PORT_SPEAKER;
-
-typedef struct {
-	int p1,p2,p3,
-		p4,p5,p6,
-		p7,p8;
-}pixels;
 
 void showLED(out port p, chanend fromDataIn) {
 	unsigned int lightUpPattern;
@@ -122,16 +116,6 @@ void worker(chanend c_in, chanend c_out, int id) {
 					c_out <: (uchar)(result/9);
 				}
 			}
-			/*if(j>=2) {
-				result = 0;
-				for(int i=1;i<width-1;i++) {
-					int temp = (i-1)%4;
-					result = (int)tempArray[currentLine][i-1] + (int)tempArray[minusOne][i-1] + (int)tempArray[minusOne][i]
-								+ (int)tempArray[minusOne][i+1] + (int)tempArray[currentLine][i+1] + (int)tempArray[plusOne][i+1]
-								 + (int)tempArray[plusOne][i] + (int)tempArray[plusOne][i-1] + (int)tempArray[currentLine][i];
-					c_out <: (uchar)(result/9);
-				}
-			}*/
 		}
 	}
 	c_in :> temp1;
@@ -185,9 +169,6 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 						}
 					}
 			}
-			/*for(int j = 0; j<selection-1;j++) {
-				c_out <: w0[j];
-			}*/
 			for(int j = 0;j < selection;j++) {
 				c_out <: w1[j];
 			}
@@ -220,7 +201,7 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 		fromButtons <: 1;
 	}
 	printf("DataInStream:Start...\n");
-	toTimer <: 0;
+	toTimer <: INIT;
 	for(int l=0;l<noBlurs;l++) {
 		int ack;
 		if(l == 0)
@@ -234,7 +215,9 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 			return;
 		}
 		for (int y = 0; y < IMHT; y++) {
+			toTimer <: 0;
 			_readinline(line, IMWD);
+			toTimer <: 0;
 			for (int x=0; x<IMWD; x++) {
 				select {
 					case fromButtons :> value:
@@ -352,7 +335,9 @@ void DataOutStream(char outfname[], chanend c_in, chanend dataoutToTimer, chanen
 			//printf( "+%4.1d ", line[ x ] );
 			}
 		//printf( "\n" );
+			dataoutToTimer <: INIT;
 			_writeoutline( line, IMWD );
+			dataoutToTimer <: INIT;
 		}
 
 		_closeoutpgm();
@@ -370,9 +355,11 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 	 * of an integer. I.e less than 2147483647 and the flag is set, then you
 	 * have an overflow
 	 */
-	uint currentTime, startTime, val, overflowCount = 0;
+	uint currentTime, startTime, val, value, overflowCount = 0;
 	int running = 1, overflowFlag = 0;
 	int onceFlag = 0;
+	int flag = 0, dataoutFlag = 0;
+	uint readinTime = 0, start = 0, dataStart = 0, dataReadinTime;
 	timer Timer;
 	Timer :> currentTime;
 	//the timer counts in nanoseconds, so to stop it overflowing in such a short
@@ -381,9 +368,9 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 	if (currentTime > 2147483647) overflowFlag = 1;
 	while (running) {
 		select {
-			case fromDataOut :> val:
+			case fromDataOut :> value:
 			{
-				if (val == SHUTDOWN) running = 0;
+				if (value == SHUTDOWN) running = 0;
 				else {
 					Timer :> val;
 					//checks for overflow whenever a time is requested
@@ -399,11 +386,22 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 					 * calculation
 					 */
 					val = overflowCount * 42949673 + val/100 - startTime;
-					printf("Process took %u minutes %u.%06us\n", val/1000000/60, (val/1000000)%60, val%1000000);
+					if(value != INIT) {
+						printf("Process took %u minutes %u.%06us\n", val/1000000/60, (val/1000000)%60, val%1000000);
+						val = val - readinTime- dataReadinTime;
+						printf("Process without usb took %u minutes %u.%06us\n", (val)/1000000/60, ((val)/1000000)%60, (val)%1000000);
+						printf("Throughput without including usb time = %u pixels per second\n", IMHT*IMWD/val/1000000);
+					} else if(!dataoutFlag) {
+						dataStart = val;
+						dataoutFlag = 1;
+					} else {
+						dataReadinTime+=val-dataStart;
+						dataoutFlag = 0;
+					}
 				}
 				break;
 			}
-			case fromDataIn :> val:
+			case fromDataIn :> value:
 			{
 				Timer :> val;
 				//checks for overflow whenever a time is requested
@@ -412,7 +410,15 @@ void Timer(chanend fromDataOut, chanend fromDataIn) {
 					overflowFlag = 0;
 					overflowCount++;
 				}
-				startTime = overflowCount * 42949673 + val/100;
+				if(value == INIT)
+					startTime = overflowCount * 42949673 + val/100;
+				else if(!flag) {
+					start = val;
+					flag = 1;
+				} else {
+					readinTime = val-start + readinTime;
+					flag = 0;
+				}
 				break;
 			}
 			case Timer when timerafter(currentTime + 1000000000) :> void:
