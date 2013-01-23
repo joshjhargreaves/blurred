@@ -11,18 +11,18 @@ typedef unsigned char uchar;
 #include <platform.h>
 #include <stdio.h>
 #include "pgmIO.h"
-#define IMHT 256
-#define IMWD 400
+#define IMHT 512
+#define IMWD 512
 #define noWorkers 4
 #define bufferWidth (IMWD/noWorkers)+2
 #define selection (IMWD/noWorkers)
 #define divided IMWD/noWorkers
 #define SHUTDOWN 1000000
 #define noBlurs 1
-char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\BristolCathedral.pgm"; //put your input image path here
+char infname[] = "C:\\Users\\Josh\\Documents\\cimages\\lena.pgm"; //put your input image path here
 char outfname[] = "C:\\Users\\Josh\\Documents\\cimages\\output.pgm"; //put your output image path here
 char tempFile1[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
-char tempFile2[] = "C:\\Users\\Josh\\Documents\\cimages\\temp1.pgm";
+char tempFile2[] = "C:\\Users\\Josh\\Documents\\cimages\\temp2.pgm";
 out port cled[4] = {PORT_CLOCKLED_0,PORT_CLOCKLED_1,PORT_CLOCKLED_2,PORT_CLOCKLED_3};
 out port cledG = PORT_CLOCKLED_SELG;
 out port cledR = PORT_CLOCKLED_SELR;
@@ -49,7 +49,6 @@ void showLED(out port p, chanend fromDataIn) {
 			break;
 		}
 	}
-	printf("LED:Done...\n");
 }
 
 void waitMoment(uint myTime) {
@@ -93,7 +92,6 @@ void buttonListener(in port buttons, chanend toDistributor) { //ABCD 14 13 11 7
 			running = 0;
 		waitMoment(15000000);
 	}
-	printf("ButtonListener:Done...\n");
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -136,10 +134,8 @@ void worker(chanend c_in, chanend c_out, int id) {
 			}*/
 		}
 	}
-	printf("worker done\n");
 	c_in :> temp1;
 	c_out <: SHUTDOWN;
-	printf("worker shutdown\n");
 }
 void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 	uchar black = 0;
@@ -213,9 +209,8 @@ void collector(chanend fromWorkers[], chanend c_out, chanend toVisualiser) {
 		fromWorkers[i] :> number;
 	}
 	toVisualiser <: SHUTDOWN;
-	printf("collector done\n");
 }
-void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend toDataOut) {
+void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend toDataOut, chanend toTimer) {
 	int res;
 	uchar line[IMWD];
 	int button = 0;
@@ -225,9 +220,15 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 		fromButtons <: 1;
 	}
 	printf("DataInStream:Start...\n");
+	toTimer <: 0;
 	for(int l=0;l<noBlurs;l++) {
 		int ack;
-		res = _openinpgm(infname, IMWD, IMHT);
+		if(l == 0)
+			res = _openinpgm(infname, IMWD, IMHT);
+		else if((l%2))
+			res = _openinpgm(tempFile1, IMWD, IMHT);
+		else
+			res = _openinpgm(tempFile2, IMWD, IMHT);
 		if (res) {
 			printf("DataInStream:Error openening %s\n.", infname);
 			return;
@@ -273,7 +274,6 @@ void DataInStream(char infname[], chanend c_out, chanend fromButtons, chanend to
 		}
 	}
 	c_out <: SHUTDOWN;
-	printf( "DataInStream:Done...\n" );
 	return;
 }
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -320,36 +320,30 @@ void distributor(chanend c_in, chanend c_out[]) {
 			}
 		}
 	}
-	printf( "ProcessImage:Done...\n" );
-	/*for(int i=0;i<noWorkers;i++) {
-		c_out[i] <: 1000;
-	}*/
 	do {
 		c_in :> tempValue;
 	} while (tempValue != SHUTDOWN);
 	for(int i = 0; i<noWorkers; i++) {
 		c_out[i] <: SHUTDOWN;
 	}
-	printf( "Distributor:Shutdown...\n" );
 }
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Write pixel stream from channel c_in to pgm image file
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataOutStream(char outfname[], chanend c_in, chanend toTimer, chanend toDataIn) {
+void DataOutStream(char outfname[], chanend c_in, chanend dataoutToTimer, chanend toDataIn) {
 	int res;
 	uchar line[IMWD];
-	uint start, end;
-
 	printf("DataOutStream:Start...\n");
-	toTimer <: 0;
-	toTimer :> start;
-	printf("From Timer %u minute %u.%06us\n", start/1000000/60, (start/1000000)%60, start%1000000);
 	for(int l=0;l<noBlurs;l++) {
-		res = _openoutpgm(outfname, IMWD, IMHT);
+		if(l == (noBlurs-1))
+			res = _openoutpgm(outfname, IMWD, IMHT);
+		else if(!(l % 2))
+			res = _openoutpgm(tempFile1, IMWD, IMHT);
+		else
+			res = _openoutpgm(tempFile2, IMWD, IMHT);
 		if (res) {
-			printf("DataOutStream:Error opening %s\n.", outfname);
 			return;
 		}
 		for (int y = 0; y < IMHT; y++) {
@@ -364,16 +358,12 @@ void DataOutStream(char outfname[], chanend c_in, chanend toTimer, chanend toDat
 		_closeoutpgm();
 		toDataIn <: 1;
 	}
-	toTimer <: 0;
-	toTimer :> end;
-	toTimer <: SHUTDOWN;
-	printf("From Timer %u minute %u.%06us\n", end/1000000/60, (end/1000000)%60, end%1000000);
-	printf("Elapsed currentTime: %u minute %u.%06us\n", (end - start)/1000000/60, ((end - start)/1000000) % 60, (end - start)%1000000);
-	printf( "DataOutStream:Done...\n" );
+	dataoutToTimer <: 0;
+	dataoutToTimer <: SHUTDOWN;
 	return;
 }
-
-void Timer(chanend fromCollector) {
+//Timer inspired by a timer written for the arudueno board
+void Timer(chanend fromDataOut, chanend fromDataIn) {
 	/* OverflowFlag tells you if the Timer is in the 'second half' of the integer
 	 * This means that once this flag is set, you can tell if the timer has
 	 * Overflowed i.e if the timer then gives a timer which is in the first half
@@ -382,6 +372,7 @@ void Timer(chanend fromCollector) {
 	 */
 	uint currentTime, startTime, val, overflowCount = 0;
 	int running = 1, overflowFlag = 0;
+	int onceFlag = 0;
 	timer Timer;
 	Timer :> currentTime;
 	//the timer counts in nanoseconds, so to stop it overflowing in such a short
@@ -390,7 +381,7 @@ void Timer(chanend fromCollector) {
 	if (currentTime > 2147483647) overflowFlag = 1;
 	while (running) {
 		select {
-			case fromCollector :> val:
+			case fromDataOut :> val:
 			{
 				if (val == SHUTDOWN) running = 0;
 				else {
@@ -408,8 +399,20 @@ void Timer(chanend fromCollector) {
 					 * calculation
 					 */
 					val = overflowCount * 42949673 + val/100 - startTime;
-					fromCollector <: val;
+					printf("Process took %u minutes %u.%06us\n", val/1000000/60, (val/1000000)%60, val%1000000);
 				}
+				break;
+			}
+			case fromDataIn :> val:
+			{
+				Timer :> val;
+				//checks for overflow whenever a time is requested
+				if (val > 2147483647) overflowFlag = 1;
+				if (overflowFlag && val < 2147483647) {
+					overflowFlag = 0;
+					overflowCount++;
+				}
+				startTime = overflowCount * 42949673 + val/100;
 				break;
 			}
 			case Timer when timerafter(currentTime + 1000000000) :> void:
@@ -437,16 +440,17 @@ int main() {
 	chan buttonsToDataIn;
 	chan dataOutToDataIn;
 	chan quadrant[4];
-	chan toTimer;
+	chan dataoutToTimer;
+	chan datainToTimer;
 	par //extend/change this par statement to implement your concurrent filter
 	{
 		on stdcore[0] : visualiser(toVisualiser, quadrant);
 		on stdcore[0] : buttonListener(buttons, buttonsToDataIn);
-		on stdcore[0] : Timer(toTimer);
-		on stdcore[1] : DataInStream( infname, c_inIO, buttonsToDataIn, dataOutToDataIn);
+		on stdcore[0] : Timer(dataoutToTimer, datainToTimer);
+		on stdcore[1] : DataInStream(infname, c_inIO, buttonsToDataIn, dataOutToDataIn, datainToTimer);
 		on stdcore[1] : distributor( c_inIO, distributorToWorkers);
 		on stdcore[3] : collector(workerToCollector, c_outIO, toVisualiser);
-		on stdcore[3] : DataOutStream( outfname, c_outIO, toTimer, dataOutToDataIn);
+		on stdcore[3] : DataOutStream( outfname, c_outIO, dataoutToTimer, dataOutToDataIn);
 		par (int k = 0; k<noWorkers; k++) {
 			on stdcore[k%4]: worker(distributorToWorkers[k],workerToCollector[k], k);
 		}
